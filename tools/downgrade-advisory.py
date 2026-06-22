@@ -208,11 +208,10 @@ def main():
     if issue_url:
         print(f"\nIssue created: {issue_url}")
 
-        # Close the advisory and link to the new issue.
+        # Close the advisory and append a note linking to the issue.
         close_note = (
-            f"This advisory was reviewed and determined not to require a "
-            f"security response. It has been converted to a public issue:\n"
-            f"{issue_url}\n\n---\n\n{description}"
+            f"{description}\n\n---\n\n"
+            f"Reviewed and converted to a public issue: {issue_url}"
         )
         payload = json.dumps({"state": "closed", "description": close_note})
         _, err = gh_api(
@@ -222,9 +221,9 @@ def main():
         )
         if err:
             print(f"\nWARNING: Failed to close advisory: {err}", file=sys.stderr)
-            print(f"Manually close {args.ghsa_id} and link to {issue_url}.")
+            print(f"Manually close {args.ghsa_id}.")
         else:
-            print(f"Advisory {args.ghsa_id} closed with link to issue.")
+            print(f"Advisory {args.ghsa_id} closed.")
 
 
 if __name__ == "__main__":
