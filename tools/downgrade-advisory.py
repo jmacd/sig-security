@@ -102,34 +102,7 @@ def format_issue_body(adv, scrubbed_desc, author):
     )
     parts.append("")
 
-    # Severity and CWEs.
-    severity = adv.get("severity") or "unset"
-    cwes = [c["cwe_id"] for c in adv.get("cwes", [])]
-    cvss = adv.get("cvss", {}) or {}
-    meta = [f"**Severity:** {severity}"]
-    if cvss.get("vector_string"):
-        meta.append(f"**CVSS:** {cvss['score']} ({cvss['vector_string']})")
-    if cwes:
-        meta.append(f"**CWEs:** {', '.join(cwes)}")
-    parts.append(" | ".join(meta))
     parts.append("")
-
-    # Affected packages.
-    vulns = adv.get("vulnerabilities", [])
-    if vulns:
-        parts.append("### Affected components")
-        parts.append("")
-        for v in vulns:
-            pkg = v.get("package", {}).get("name", "unknown")
-            vrange = v.get("vulnerable_version_range", "")
-            patched = v.get("patched_versions", "")
-            line = f"- `{pkg}`"
-            if vrange:
-                line += f" {vrange}"
-            if patched:
-                line += f" (fixed in {patched})"
-            parts.append(line)
-        parts.append("")
 
     # Main description.
     parts.append(scrubbed_desc)
@@ -225,7 +198,7 @@ def main():
         print("ERROR: Could not determine authenticated user.", file=sys.stderr)
         sys.exit(1)
     author_login = author["login"]
-    title = f"[{severity.upper()}] {summary}"
+    title = summary
     body = format_issue_body(adv, scrubbed, author_login)
 
     # Create or preview.
@@ -234,10 +207,24 @@ def main():
 
     if issue_url:
         print(f"\nIssue created: {issue_url}")
-        print(
-            f"\nRemember to close the advisory {args.ghsa_id} "
-            f"and link to this issue."
+
+        # Close the advisory and link to the new issue.
+        close_note = (
+            f"This advisory was reviewed and determined not to require a "
+            f"security response. It has been converted to a public issue:\n"
+            f"{issue_url}\n\n---\n\n{description}"
         )
+        payload = json.dumps({"state": "closed", "description": close_note})
+        _, err = gh_api(
+            f"/repos/{args.repo}/security-advisories/{args.ghsa_id}",
+            method="PATCH",
+            input_data=payload,
+        )
+        if err:
+            print(f"\nWARNING: Failed to close advisory: {err}", file=sys.stderr)
+            print(f"Manually close {args.ghsa_id} and link to {issue_url}.")
+        else:
+            print(f"Advisory {args.ghsa_id} closed with link to issue.")
 
 
 if __name__ == "__main__":
