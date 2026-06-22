@@ -116,7 +116,7 @@ def create_issue(repo, title, body, labels, dry_run):
         "gh", "issue", "create",
         "--repo", repo,
         "--title", title,
-        "--body", body,
+        "--body-file", "-",
     ]
     for label in labels:
         cmd += ["--label", label]
@@ -133,7 +133,7 @@ def create_issue(repo, title, body, labels, dry_run):
         print("--- End preview ---")
         return None
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, input=body, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"ERROR: Failed to create issue: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
