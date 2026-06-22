@@ -90,14 +90,15 @@ def scrub_description(description, reporter_login):
     return "\n".join(scrubbed).strip()
 
 
-def format_issue_body(adv, scrubbed_desc):
+def format_issue_body(adv, scrubbed_desc, author):
     """Build the issue body from the advisory data."""
     parts = []
 
     # Origin note.
     parts.append(
-        f"> Downgraded from security advisory {adv['ghsa_id']}. "
-        f"The original report was reviewed and determined not to require a CVE."
+        f"> Downgraded from security advisory {adv['ghsa_id']}. Identifying "
+        f"details have been removed. @{author} reviewed the original issue "
+        f"and [determined that a security response is not required](https://github.com/open-telemetry/sig-security/blob/main/security-response.md)."
     )
     parts.append("")
 
@@ -219,8 +220,13 @@ def main():
 
     # Scrub and build the issue.
     scrubbed = scrub_description(description, reporter)
+    author, err = gh_api("/user")
+    if err or not author:
+        print("ERROR: Could not determine authenticated user.", file=sys.stderr)
+        sys.exit(1)
+    author_login = author["login"]
     title = f"[{severity.upper()}] {summary}"
-    body = format_issue_body(adv, scrubbed)
+    body = format_issue_body(adv, scrubbed, author_login)
 
     # Create or preview.
     labels = args.label or ["bug"]
