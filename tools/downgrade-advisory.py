@@ -24,6 +24,27 @@ import textwrap
 
 DEFAULT_REPO = "open-telemetry/opentelemetry-collector-contrib"
 
+# Matches a GitHub security-advisory URL, capturing "owner/repo" and the GHSA ID.
+ADVISORY_URL_RE = re.compile(
+    r"github\.com/(?P<repo>[^/\s]+/[^/\s]+)/security/advisories/"
+    r"(?P<ghsa>GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})",
+    re.IGNORECASE,
+)
+
+
+def parse_advisory_arg(value):
+    """Resolve the positional arg into (repo_or_None, ghsa_id).
+
+    Accepts either a bare GHSA ID or a full advisory URL such as
+    https://github.com/<owner>/<repo>/security/advisories/GHSA-xxxx-xxxx-xxxx.
+    When a URL is given, the repo it points at is returned so it can override
+    the default; for a bare GHSA ID the repo is None.
+    """
+    m = ADVISORY_URL_RE.search(value)
+    if m:
+        return m.group("repo"), m.group("ghsa")
+    return None, value
+
 
 def gh_api(endpoint, method="GET", input_data=None):
     """Call the GitHub API via the gh CLI."""
@@ -45,7 +66,14 @@ def fetch_advisory(repo, ghsa_id):
     """Fetch a single advisory by GHSA ID."""
     data, err = gh_api(f"/repos/{repo}/security-advisories/{ghsa_id}")
     if err:
-        print(f"ERROR: Failed to fetch {ghsa_id}: {err}", file=sys.stderr)
+        print(f"ERROR: Failed to fetch {ghsa_id} from {repo}: {err}", file=sys.stderr)
+        if "Not Found" in err or "404" in err:
+            print(
+                "HINT: The advisory may live in a different repository. Pass "
+                "--repo <owner>/<repo> (or the full advisory URL) to point at "
+                "the repo that owns it.",
+                file=sys.stderr,
+            )
         sys.exit(1)
     return data
 
@@ -148,12 +176,13 @@ def main():
     )
     parser.add_argument(
         "ghsa_id",
-        help="GHSA ID of the advisory to downgrade (e.g. GHSA-xxxx-xxxx-xxxx)",
+        help="GHSA ID (e.g. GHSA-xxxx-xxxx-xxxx) or full advisory URL",
     )
     parser.add_argument(
         "--repo",
-        default=os.environ.get("REPO", DEFAULT_REPO),
-        help=f"Source repository (default: {DEFAULT_REPO})",
+        default=None,
+        help=f"Source repository; overrides the repo in a URL "
+        f"(default: $REPO or {DEFAULT_REPO})",
     )
     parser.add_argument(
         "--target-repo",
@@ -173,11 +202,17 @@ def main():
     )
     args = parser.parse_args()
 
-    target_repo = args.target_repo or args.repo
+    # The positional arg may be a bare GHSA ID or a full advisory URL.
+    url_repo, ghsa_id = parse_advisory_arg(args.ghsa_id)
+    # Precedence for the source repo: explicit --repo > URL > $REPO > default.
+    source_repo = (
+        args.repo or url_repo or os.environ.get("REPO", DEFAULT_REPO)
+    )
+    target_repo = args.target_repo or source_repo
 
     # Fetch the advisory.
-    print(f"Fetching {args.ghsa_id} from {args.repo}...")
-    adv = fetch_advisory(args.repo, args.ghsa_id)
+    print(f"Fetching {ghsa_id} from {source_repo}...")
+    adv = fetch_advisory(source_repo, ghsa_id)
 
     summary = adv["summary"]
     reporter = adv.get("author", {}).get("login", "unknown")
@@ -215,15 +250,15 @@ def main():
         )
         payload = json.dumps({"state": "closed", "description": close_note})
         _, err = gh_api(
-            f"/repos/{args.repo}/security-advisories/{args.ghsa_id}",
+            f"/repos/{source_repo}/security-advisories/{ghsa_id}",
             method="PATCH",
             input_data=payload,
         )
         if err:
             print(f"\nWARNING: Failed to close advisory: {err}", file=sys.stderr)
-            print(f"Manually close {args.ghsa_id}.")
+            print(f"Manually close {ghsa_id}.")
         else:
-            print(f"Advisory {args.ghsa_id} closed.")
+            print(f"Advisory {ghsa_id} closed.")
 
 
 if __name__ == "__main__":
